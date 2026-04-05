@@ -42,7 +42,8 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(code);
     // Redirect back to React with the token in the URL
-    res.redirect(`http://localhost:3000?refreshToken=${tokens.refresh_token}`);
+    // Change this line in your callback route:
+    res.redirect(`https://ramana-frontend-automail.vercel.app?refreshToken=${tokens.refresh_token}`);
   } catch (error) {
     console.error("Auth error:", error);
     res.status(500).send("Authentication failed");
