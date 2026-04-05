@@ -51,6 +51,7 @@ app.get("/auth/google/callback", async (req, res) => {
 });
 
 // 3. Send the Email (UPDATED TO ALLOW 10 ATTACHMENTS)
+// 3. Send the Email (UPDATED TO BYPASS RENDER SMTP BLOCK)
 app.post("/send-mail", upload.array("files", 10), async (req, res) => {
   try {
     const { to, cc, bcc, subject, text, refreshToken, userEmail } = req.body;
@@ -60,22 +61,12 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
       return res.status(400).send("Maximum 10 recipients allowed.");
     }
 
+    // Authenticate with Google
     oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const accessToken = await oauth2Client.getAccessToken();
+    
+    // Initialize the Gmail HTTP API (This bypasses Render's port 465 block!)
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        type: "OAuth2",
-        user: userEmail, 
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        refreshToken: refreshToken,
-        accessToken: accessToken.token,
-      },
-    });
-
-    // We process the attachments once before the loop
     const attachments = req.files
       ? req.files.map((file) => ({
           filename: file.originalname,
@@ -83,28 +74,51 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
         }))
       : [];
 
-    // THE MAGIC: We loop through the 'toArray' and send a separate email to each person
+    // Create a "dummy" transporter. 
+    // It doesn't send the email; it just formats it into a raw buffer for us.
+    const transporter = nodemailer.createTransport({
+      streamTransport: true,
+      buffer: true 
+    });
+
+    // Loop through the recipients
     const sendPromises = toArray.map(async (recipientEmail) => {
-      // .trim() removes any accidental spaces like " email@gmail.com "
       const cleanEmail = recipientEmail.trim(); 
       
-      return transporter.sendMail({
+      const mailOptions = {
         from: userEmail,
-        to: cleanEmail, // <--- Now it only sends to THIS specific person
+        to: cleanEmail,
         cc: cc ? cc : "",
         bcc: bcc ? bcc : "",
         subject,
         html: text,
         attachments,
+      };
+
+      // 1. Build the raw email buffer using Nodemailer
+      const info = await transporter.sendMail(mailOptions);
+      
+      // 2. Convert the buffer to base64url format (Required by Google API)
+      const encodedMessage = info.message.toString("base64")
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      // 3. Send using standard HTTP via the Gmail API
+      return gmail.users.messages.send({
+        userId: "me",
+        requestBody: {
+          raw: encodedMessage,
+        },
       });
     });
 
     // Wait for all the individual emails to finish sending concurrently
     await Promise.all(sendPromises);
 
-    res.send("Emails sent individually successfully!");
+    res.send("Emails sent successfully!");
   } catch (err) {
-    console.error(err);
+    console.error("Mail send error:", err);
     res.status(500).send("Failed to send email");
   }
 });
