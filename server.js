@@ -18,7 +18,7 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 // ---------------------------------------------------------
-// THE SMART GUESSER: Extracts or guesses names from emails
+// THE SMART GUESSER: Extracts or guesses names (NO NUMBERS)
 // ---------------------------------------------------------
 const extractEmails = (inputStr) => {
   if (!inputStr) return [];
@@ -35,12 +35,21 @@ const extractEmails = (inputStr) => {
       return cleanMatch;
     } 
     
-    // If it's JUST a raw email, guess the name from the prefix
+    // If it's JUST a raw email, grab the prefix
     const emailPrefix = cleanMatch.split('@')[0];
     
-    // Split by dots, underscores, or hyphens, and capitalize each word
-    const guessedName = emailPrefix
+    // NEW: Remove all numeric digits from the prefix
+    let textOnlyPrefix = emailPrefix.replace(/[0-9]/g, '');
+    
+    // Fallback: If the email was literally ONLY numbers (e.g., 12345@gmail.com), default to "User"
+    if (textOnlyPrefix.trim() === '') {
+      textOnlyPrefix = 'User';
+    }
+    
+    // Split by dots, underscores, or hyphens, remove any empty spaces, and capitalize
+    const guessedName = textOnlyPrefix
       .split(/[._-]/)
+      .filter(word => word.length > 0) 
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
       
