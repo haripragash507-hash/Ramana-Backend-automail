@@ -29,7 +29,7 @@ const knownContacts = {
   "sree.krishnan@jozuna.com": "Sree Krishnan",
   "sudir.senthil2@gmail.com": "Sudir Senthil",
   "haripragash507@gmail.com": "Hari Pragash",
-  "haripragash85@gmail.com" : " Hari Pragash A",
+  "haripragash85@gmail.com" : "Hari Pragash A",
 };
 
 // ---------------------------------------------------------
