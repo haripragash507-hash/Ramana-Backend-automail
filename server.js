@@ -17,13 +17,38 @@ const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// Helper function to smartly extract "Name <email>" from messy strings
+// ---------------------------------------------------------
+// THE SMART GUESSER: Extracts or guesses names from emails
+// ---------------------------------------------------------
 const extractEmails = (inputStr) => {
   if (!inputStr) return [];
-  // This regex grabs standard emails OR correctly formatted "Name <email>" pairs
+  
+  // Grab standard emails OR correctly formatted "Name <email>" pairs
   const matches = inputStr.match(/(?:[^<,\n]+<[^>]+>)|(?:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g);
-  return matches ? matches.map((email) => email.trim()) : [];
+  if (!matches) return [];
+
+  return matches.map((match) => {
+    const cleanMatch = match.trim();
+    
+    // If it already has a name formatted like "Name <email>", keep it!
+    if (cleanMatch.includes('<') && cleanMatch.includes('>')) {
+      return cleanMatch;
+    } 
+    
+    // If it's JUST a raw email, guess the name from the prefix
+    const emailPrefix = cleanMatch.split('@')[0];
+    
+    // Split by dots, underscores, or hyphens, and capitalize each word
+    const guessedName = emailPrefix
+      .split(/[._-]/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+      
+    // Return the perfectly formatted string for nodemailer
+    return `"${guessedName}" <${cleanMatch}>`;
+  });
 };
+// ---------------------------------------------------------
 
 // Health check endpoint
 app.get("/", (req, res) => {
@@ -57,13 +82,12 @@ app.get("/auth/google/callback", async (req, res) => {
   }
 });
 
-// 3. Send the Email (UPDATED WITH PROPER NAME FORMATTING)
+// 3. Send the Email
 app.post("/send-mail", upload.array("files", 10), async (req, res) => {
   try {
-    // Added 'userName' here so you can pass the Sender's name from the frontend
     const { to, cc, bcc, subject, text, refreshToken, userEmail, userName } = req.body;
 
-    // Use the smart extractor to handle the mixed formatting in your provided list
+    // Use the smart extractor to handle the mixed formatting and guess names
     const toArray = extractEmails(to);
     
     if (toArray.length > 10) {
@@ -99,10 +123,10 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
     const sendPromises = toArray.map(async (recipientEmail) => {
       
       const mailOptions = {
-        from: fromField,             // Will show Sender Name + Email
-        to: recipientEmail,          // Will show Recipient Name + Email
-        cc: cleanedCc,               // Will show CC Names + Emails
-        bcc: cleanedBcc,             // Will show BCC Names + Emails
+        from: fromField,             
+        to: recipientEmail,          
+        cc: cleanedCc,               
+        bcc: cleanedBcc,             
         subject,
         html: text,
         attachments,
