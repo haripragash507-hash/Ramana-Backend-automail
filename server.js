@@ -18,7 +18,22 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 // ---------------------------------------------------------
-// THE SMART GUESSER: Extracts or guesses names (NO NUMBERS)
+// 1. THE ADDRESS BOOK (Hardcoded Known Contacts)
+// Add or remove people from this list anytime you want!
+// Make sure the email addresses here are lowercase.
+// ---------------------------------------------------------
+const knownContacts = {
+  "ravinasri@jozuna.com": "Ravina Sri",
+  "hemamalini.srinivasan@jozuna.com": "Hemamalini Srinivasan", // Fixed the space from your prompt
+  "kasheer.eswaran@jozuna.com": "Kasheer Eswaran",
+  "shradha@jozuna.com": "Shradha Agarwal",
+  "logarachaka.m@jozuna.com": "Logarachaka M",
+  "sree.krishnan@jozuna.com": "Sree Krishnan",
+  "sudir.senthil2@gmail.com": "Sudir Senthil",
+};
+
+// ---------------------------------------------------------
+// 2. THE SMART GUESSER + DICTIONARY LOOKUP
 // ---------------------------------------------------------
 const extractEmails = (inputStr) => {
   if (!inputStr) return [];
@@ -30,23 +45,37 @@ const extractEmails = (inputStr) => {
   return matches.map((match) => {
     const cleanMatch = match.trim();
     
+    // Extract just the raw email address so we can look it up in the dictionary
+    const rawEmailMatch = cleanMatch.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    if (!rawEmailMatch) return cleanMatch;
+    
+    // Convert to lowercase so it always matches our dictionary perfectly
+    const rawEmail = rawEmailMatch[0].toLowerCase(); 
+
+    // --- NEW: EXACT DICTIONARY MATCH ---
+    // If this email is in our knownContacts list above, use that exact name!
+    if (knownContacts[rawEmail]) {
+      return `"${knownContacts[rawEmail]}" <${rawEmail}>`;
+    }
+
+    // --- PREVIOUS LOGIC FOLLOWS (If not in dictionary) ---
     // If it already has a name formatted like "Name <email>", keep it!
     if (cleanMatch.includes('<') && cleanMatch.includes('>')) {
       return cleanMatch;
     } 
     
-    // If it's JUST a raw email, grab the prefix
-    const emailPrefix = cleanMatch.split('@')[0];
+    // If it's a completely unknown raw email, guess the name from the prefix
+    const emailPrefix = rawEmail.split('@')[0];
     
-    // NEW: Remove all numeric digits from the prefix
+    // Remove all numeric digits from the prefix (e.g., 'haripragash507' -> 'haripragash')
     let textOnlyPrefix = emailPrefix.replace(/[0-9]/g, '');
     
-    // Fallback: If the email was literally ONLY numbers (e.g., 12345@gmail.com), default to "User"
+    // Fallback: If the email was literally ONLY numbers, default to "User"
     if (textOnlyPrefix.trim() === '') {
       textOnlyPrefix = 'User';
     }
     
-    // Split by dots, underscores, or hyphens, remove any empty spaces, and capitalize
+    // Split by dots, underscores, or hyphens, remove empty spaces, and capitalize
     const guessedName = textOnlyPrefix
       .split(/[._-]/)
       .filter(word => word.length > 0) 
@@ -54,7 +83,7 @@ const extractEmails = (inputStr) => {
       .join(' ');
       
     // Return the perfectly formatted string for nodemailer
-    return `"${guessedName}" <${cleanMatch}>`;
+    return `"${guessedName}" <${rawEmail}>`;
   });
 };
 // ---------------------------------------------------------
@@ -96,7 +125,7 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
   try {
     const { to, cc, bcc, subject, text, refreshToken, userEmail, userName } = req.body;
 
-    // Use the smart extractor to handle the mixed formatting and guess names
+    // Use the smart extractor to handle the mixed formatting and guess/lookup names
     const toArray = extractEmails(to);
     
     if (toArray.length > 10) {
@@ -106,6 +135,71 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
     // Authenticate with Google
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     
+    // Initialize the Gmail HTTP API
+    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+    const attachments = req.files
+      ? req.files.map((file) => ({
+          filename: file.originalname,
+          content: file.buffer, 
+        }))
+      : [];
+
+    const transporter = nodemailer.createTransport({
+      streamTransport: true,
+      buffer: true 
+    });
+
+    // Format the FROM field
+    const fromField = userName ? `"${userName}" <${userEmail}>` : userEmail;
+    
+    // Clean up CC and BCC fields using the same smart extractor
+    const cleanedCc = extractEmails(cc).join(", ");
+    const cleanedBcc = extractEmails(bcc).join(", ");
+
+    // Loop through the recipients
+    const sendPromises = toArray.map(async (recipientEmail) => {
+      
+      const mailOptions = {
+        from: fromField,             
+        to: recipientEmail,          
+        cc: cleanedCc,               
+        bcc: cleanedBcc,             
+        subject,
+        html: text,
+        attachments,
+      };
+
+      // 1. Build the raw email buffer using Nodemailer
+      const info = await transporter.sendMail(mailOptions);
+      
+      // 2. Convert the buffer to base64url format
+      const encodedMessage = info.message.toString("base64")
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      // 3. Send using standard HTTP via the Gmail API
+      return gmail.users.messages.send({
+        userId: "me",
+        requestBody: {
+          raw: encodedMessage,
+        },
+      });
+    });
+
+    // Wait for all the individual emails to finish sending concurrently
+    await Promise.all(sendPromises);
+
+    res.send("Emails sent successfully!");
+  } catch (err) {
+    console.error("Mail send error:", err);
+    res.status(500).send("Failed to send email");
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
     // Initialize the Gmail HTTP API
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
