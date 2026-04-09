@@ -19,17 +19,17 @@ const oauth2Client = new google.auth.OAuth2(
 
 // ---------------------------------------------------------
 // 1. THE ADDRESS BOOK (Hardcoded Known Contacts)
-// Add or remove people from this list anytime you want!
-// Make sure the email addresses here are lowercase.
 // ---------------------------------------------------------
 const knownContacts = {
   "ravinasri@jozuna.com": "Ravina Sri",
-  "hemamalini.srinivasan@jozuna.com": "Hemamalini Srinivasan", // Fixed the space from your prompt
+  "hemamalini.srinivasan@jozuna.com": "Hemamalini Srinivasan",
   "kasheer.eswaran@jozuna.com": "Kasheer Eswaran",
   "shradha@jozuna.com": "Shradha Agarwal",
   "logarachaka.m@jozuna.com": "Logarachaka M",
   "sree.krishnan@jozuna.com": "Sree Krishnan",
   "sudir.senthil2@gmail.com": "Sudir Senthil",
+  "haripragash507@gmail.com": "Hari Pragash",
+  "haripragash85@gmail.com" : " Hari Pragash A",
 };
 
 // ---------------------------------------------------------
@@ -52,14 +52,12 @@ const extractEmails = (inputStr) => {
     // Convert to lowercase so it always matches our dictionary perfectly
     const rawEmail = rawEmailMatch[0].toLowerCase(); 
 
-    // --- NEW: EXACT DICTIONARY MATCH ---
-    // If this email is in our knownContacts list above, use that exact name!
+    // EXACT DICTIONARY MATCH
     if (knownContacts[rawEmail]) {
       return `"${knownContacts[rawEmail]}" <${rawEmail}>`;
     }
 
-    // --- PREVIOUS LOGIC FOLLOWS (If not in dictionary) ---
-    // If it already has a name formatted like "Name <email>", keep it!
+    // PREVIOUS LOGIC (If not in dictionary)
     if (cleanMatch.includes('<') && cleanMatch.includes('>')) {
       return cleanMatch;
     } 
@@ -67,10 +65,10 @@ const extractEmails = (inputStr) => {
     // If it's a completely unknown raw email, guess the name from the prefix
     const emailPrefix = rawEmail.split('@')[0];
     
-    // Remove all numeric digits from the prefix (e.g., 'haripragash507' -> 'haripragash')
+    // Remove all numeric digits from the prefix
     let textOnlyPrefix = emailPrefix.replace(/[0-9]/g, '');
     
-    // Fallback: If the email was literally ONLY numbers, default to "User"
+    // Fallback: If the email was literally ONLY numbers
     if (textOnlyPrefix.trim() === '') {
       textOnlyPrefix = 'User';
     }
@@ -200,68 +198,4 @@ app.post("/send-mail", upload.array("files", 10), async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
-    // Initialize the Gmail HTTP API
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
-
-    const attachments = req.files
-      ? req.files.map((file) => ({
-          filename: file.originalname,
-          content: file.buffer, 
-        }))
-      : [];
-
-    const transporter = nodemailer.createTransport({
-      streamTransport: true,
-      buffer: true 
-    });
-
-    // Format the FROM field (e.g., "Ramana" <ramana@example.com>)
-    const fromField = userName ? `"${userName}" <${userEmail}>` : userEmail;
-    
-    // Clean up CC and BCC fields using the same smart extractor
-    const cleanedCc = extractEmails(cc).join(", ");
-    const cleanedBcc = extractEmails(bcc).join(", ");
-
-    // Loop through the recipients
-    const sendPromises = toArray.map(async (recipientEmail) => {
       
-      const mailOptions = {
-        from: fromField,             
-        to: recipientEmail,          
-        cc: cleanedCc,               
-        bcc: cleanedBcc,             
-        subject,
-        html: text,
-        attachments,
-      };
-
-      // 1. Build the raw email buffer using Nodemailer
-      const info = await transporter.sendMail(mailOptions);
-      
-      // 2. Convert the buffer to base64url format
-      const encodedMessage = info.message.toString("base64")
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=+$/, '');
-
-      // 3. Send using standard HTTP via the Gmail API
-      return gmail.users.messages.send({
-        userId: "me",
-        requestBody: {
-          raw: encodedMessage,
-        },
-      });
-    });
-
-    // Wait for all the individual emails to finish sending concurrently
-    await Promise.all(sendPromises);
-
-    res.send("Emails sent successfully!");
-  } catch (err) {
-    console.error("Mail send error:", err);
-    res.status(500).send("Failed to send email");
-  }
-});
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
